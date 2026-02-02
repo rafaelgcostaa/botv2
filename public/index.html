@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Lovable Bot V2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #050505; color: #fff; font-family: sans-serif; }
+        .log-success { color: #4ade80; }
+        .log-error { color: #f87171; }
+    </style>
+</head>
+<body class="h-screen flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-[#0f0f0f] border border-[#222] rounded-xl p-6 shadow-2xl">
+        <h1 class="text-xl font-bold mb-6 text-purple-400">🤖 LOVABLE REFERRAL FARMER V2</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">LINK DE CONVITE</label>
+                <input type="text" id="link" placeholder="https://lovable.dev/invite/..." class="w-full bg-[#050505] border border-[#333] p-3 rounded text-sm focus:border-purple-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">QUANTIDADE (LOOPS)</label>
+                <input type="number" id="loops" value="5" class="w-full bg-[#050505] border border-[#333] p-3 rounded text-sm focus:border-purple-500 outline-none">
+            </div>
+        </div>
+
+        <div class="flex gap-3 mb-6">
+            <button onclick="start()" id="btnStart" class="flex-1 bg-purple-600 hover:bg-purple-700 py-3 rounded font-bold transition">INICIAR</button>
+            <button onclick="stop()" id="btnStop" disabled class="px-6 border border-red-900 text-red-500 py-3 rounded font-bold hover:bg-red-900/20 disabled:opacity-30">PARAR</button>
+        </div>
+
+        <div id="logs" class="h-64 bg-black rounded border border-[#222] p-4 text-xs font-mono overflow-y-auto space-y-1 text-gray-400">
+            <div>Aguardando...</div>
+        </div>
+    </div>
+
+    <script>
+        let taskId = null;
+        let interval = null;
+
+        async function start() {
+            const link = document.getElementById('link').value;
+            const loops = document.getElementById('loops').value;
+            if(!link) return alert('Link obrigatório');
+
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnStart').classList.add('opacity-50');
+            document.getElementById('btnStop').disabled = false;
+
+            const res = await fetch('/api/start-task', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ referralLink: link, loops })
+            });
+            const data = await res.json();
+            taskId = data.taskId;
+
+            interval = setInterval(poll, 2000);
+        }
+
+        async function stop() {
+            if(taskId) await fetch('/api/stop-task', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ taskId })
+            });
+        }
+
+        async function poll() {
+            if(!taskId) return;
+            const res = await fetch(`/api/task-status/${taskId}`);
+            const data = await res.json();
+            
+            const logDiv = document.getElementById('logs');
+            if(data.logs) {
+                logDiv.innerHTML = data.logs.map(l => {
+                    let cls = '';
+                    if(l.includes('SUCESSO')) cls = 'log-success';
+                    if(l.includes('Erro') || l.includes('❌')) cls = 'log-error';
+                    return `<div class="${cls}">${l}</div>`;
+                }).join('');
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+
+            if(data.status === 'completed' || data.status === 'failed' || data.status === 'stopped') {
+                clearInterval(interval);
+                document.getElementById('btnStart').disabled = false;
+                document.getElementById('btnStart').classList.remove('opacity-50');
+                document.getElementById('btnStop').disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>
