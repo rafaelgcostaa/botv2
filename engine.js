@@ -7,6 +7,39 @@ puppeteer.use(StealthPlugin());
 const runningTasks = {};
 const DEFAULT_PASSWORD = "PasswordStrong2026!";
 
+// Função auxiliar para clicar em "Publish" em uma página específica
+async function clickPublishOnPage(page, pageIndex) {
+    console.log(`[TAB ${pageIndex}] 🚀 Tentando Publicar...`);
+    try {
+        // Clicar no botão Publish (Topo)
+        const clicked1 = await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const target = btns.find(b => b.innerText.includes('Publish') || b.innerText.includes('Deploy'));
+            if(target) { target.click(); return true; }
+            return false;
+        });
+
+        if(!clicked1) return false;
+        
+        await new Promise(r => setTimeout(r, 1000)); // Espera modal
+
+        // Clicar no botão Confirmar (Dentro do Modal)
+        const clicked2 = await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            // Procura o botão de confirmação (geralmente o último 'Publish')
+            const target = btns.reverse().find(b => b.innerText.includes('Publish'));
+            if(target) { target.click(); return true; }
+            return false;
+        });
+
+        if(clicked2) console.log(`[TAB ${pageIndex}] ✅ PUBLICADO COM SUCESSO!`);
+        return clicked2;
+    } catch (e) {
+        console.log(`[TAB ${pageIndex}] ❌ Falha: ${e.message}`);
+        return false;
+    }
+}
+
 async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     const log = (msg) => {
         const time = new Date().toLocaleTimeString('pt-BR');
@@ -15,7 +48,7 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     };
 
     let successCount = 0;
-    log(`🚀 V7: Jaboti Cyberpunk Mode. Meta: ${loops}`);
+    log(`🚀 V8: Jaboti Multi-Tab Exploit (5x). Meta: ${loops}`);
 
     for (let i = 1; i <= parseInt(loops); i++) {
         if (!runningTasks[taskId]) { log("🛑 Parada."); break; }
@@ -34,111 +67,93 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
                 headless: "new",
                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1366,768']
             });
-            const page = await browser.newPage();
+            const mainPage = await browser.newPage();
 
-            // --- STEP 1: HOME ---
-            await page.goto(referralLink, { waitUntil: 'networkidle2', timeout: 60000 });
-            await page.screenshot({ path: 'public/step1_home.png' });
-            log("📸 step1_home.png");
+            // --- CADASTRO ---
+            log("🔗 Acessando...");
+            await mainPage.goto(referralLink, { waitUntil: 'networkidle2', timeout: 60000 });
 
-            // --- STEP 2: EMAIL ---
+            // Email
             const emailSel = 'input[type="email"]';
-            await page.waitForSelector(emailSel);
-            await page.type(emailSel, tempMail.address, { delay: 50 });
-            await page.keyboard.press('Enter');
-            await new Promise(r => setTimeout(r, 2000));
-            await page.screenshot({ path: 'public/step2_email.png' });
-            log("📸 step2_email.png");
-
-            // --- STEP 3: SENHA ---
+            await mainPage.waitForSelector(emailSel);
+            await mainPage.type(emailSel, tempMail.address, { delay: 50 });
+            await mainPage.keyboard.press('Enter');
+            
+            // Senha
+            log("🔑 Senha...");
             try {
                 const passSel = 'input[type="password"]';
-                await page.waitForSelector(passSel, { timeout: 10000 });
-                await page.type(passSel, DEFAULT_PASSWORD, { delay: 50 });
-                await page.keyboard.press('Enter');
-                await new Promise(r => setTimeout(r, 3000));
-                await page.screenshot({ path: 'public/step3_senha.png' });
-                log("📸 step3_senha.png");
+                await mainPage.waitForSelector(passSel, { timeout: 10000 });
+                await mainPage.type(passSel, DEFAULT_PASSWORD, { delay: 50 });
+                await mainPage.keyboard.press('Enter');
+                await mainPage.screenshot({ path: 'public/step_senha_enviada.png' });
             } catch(e) {
-                log("⚠️ Pulo da senha (ou erro).");
-                await page.screenshot({ path: 'public/debug_pass_error.png' });
+                log("⚠️ Fluxo sem senha ou erro.");
             }
 
-            // --- STEP 4: EMAIL WAIT ---
-            log("📩 Aguardando email...");
+            // --- ATIVAÇÃO ---
+            log("📩 Aguardando email (API TigrMail)...");
             const actLink = await waitForLovableCode(tempMail);
             if (!actLink) throw new Error("Link não chegou.");
             
-            // --- STEP 5: ATIVAÇÃO ---
-            log("🔗 Clicando no link...");
-            await page.goto(actLink, { waitUntil: 'networkidle0' });
-            await new Promise(r => setTimeout(r, 5000)); // Espera carregar painel
-            await page.screenshot({ path: 'public/step5_painel_logado.png' });
-            log("📸 step5_painel_logado.png");
-
-            // --- STEP 6: JABOTI ESPACIAL (PROMPT) ---
-            log("🤖 Digitando prompt...");
+            log("🔗 Ativando conta...");
+            await mainPage.goto(actLink, { waitUntil: 'networkidle0' });
             
-            // Tenta achar a caixa de texto (pode variar, tentamos selector genérico)
-            const promptText = "Quero uma landingpage de um Jaboti espacial cyberpunk";
-            const textareaSel = 'textarea, input[placeholder*="Describe"], [contenteditable="true"]';
-            
-            await page.waitForSelector(textareaSel, { timeout: 15000 });
-            await page.type(textareaSel, promptText, { delay: 30 });
-            await new Promise(r => setTimeout(r, 1000));
-            
-            // Clicar em Enviar/Gerar (Busca botão perto do textarea ou botão de submit)
-            await page.keyboard.press('Enter');
-            log("👉 Prompt enviado. Aguardando geração...");
-            
-            await page.screenshot({ path: 'public/step6_prompt_enviado.png' });
-            log("📸 step6_prompt_enviado.png");
+            // Verifica se tem onboarding (Nome, Cargo) e pula se necessário
+            try {
+                // Tenta clicar em qualquer botão "Skip" ou "Continue" que apareça no onboarding
+                await mainPage.evaluate(() => {
+                    const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Skip') || b.innerText.includes('Continue'));
+                    if(btn) btn.click();
+                });
+            } catch(e) {}
 
-            // --- STEP 7: AGUARDAR GERAÇÃO ---
-            // Espera tempo fixo generoso para a IA trabalhar
-            log("⏳ Criando Jaboti (Aguardando 25s)...");
-            await new Promise(r => setTimeout(r, 25000));
+            await new Promise(r => setTimeout(r, 5000)); // Carregar painel
+            await mainPage.screenshot({ path: 'public/step_painel.png' });
+
+            // --- CRIAÇÃO (JABOTI) ---
+            log("🤖 Criando Jaboti Cyberpunk...");
             
-            await page.screenshot({ path: 'public/step7_gerado.png' });
-            log("📸 step7_gerado.png");
+            const prompt = "Crie uma pagina com jaboti cyberpunk mode";
+            const textArea = 'textarea, [contenteditable="true"]';
+            await mainPage.waitForSelector(textArea);
+            await mainPage.type(textArea, prompt, { delay: 20 });
+            await new Promise(r => setTimeout(r, 500));
+            await mainPage.keyboard.press('Enter'); // Aperta enter/seta
 
-            // --- STEP 8: PUBLICAR (MODAL 1) ---
-            log("🚀 Tentando clicar em Publish...");
+            log("⏳ Aguardando geração (30s)...");
+            await new Promise(r => setTimeout(r, 30000));
+            await mainPage.screenshot({ path: 'public/step_gerado.png' });
+
+            // --- O EXPLOIT (5 ABAS) ---
+            log("🔥 INICIANDO EXPLOIT 5x PUBLISH 🔥");
             
-            // Procura botão que contenha texto "Publish" ou "Deploy"
-            const clicked1 = await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                const target = buttons.find(b => b.innerText.includes('Publish') || b.innerText.includes('Deploy'));
-                if (target) { target.click(); return true; }
-                return false;
-            });
-
-            if (!clicked1) log("⚠️ Botão Publish 1 não achado.");
-            else log("👉 Publish 1 clicado.");
-
-            await new Promise(r => setTimeout(r, 2000));
-            await page.screenshot({ path: 'public/step8_modal_aberto.png' });
-
-            // --- STEP 9: PUBLICAR FINAL (MODAL 2) ---
-            log("🚀 Confirmando Publish...");
+            const projectUrl = mainPage.url();
+            log(`🔗 URL do Projeto: ${projectUrl}`);
             
-            // Clica no botão de confirmação dentro do modal
-            const clicked2 = await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                // Geralmente é o botão com cor de destaque ou "Publish" novamente
-                const target = buttons.find(b => b.innerText.includes('Publish') && b.offsetParent !== null); 
-                if (target) { target.click(); return true; }
-                return false;
-            });
+            const pages = [mainPage]; // Array com todas as abas
 
-            if(clicked2) {
-                log("✅ SUCESSO! Projeto Publicado.");
-                successCount++;
-                await new Promise(r => setTimeout(r, 3000));
-                await page.screenshot({ path: 'public/step9_final_sucesso.png' });
-            } else {
-                log("⚠️ Botão Confirmar Publish não achado.");
+            // Abre mais 4 abas (Total 5)
+            for(let k=0; k<4; k++) {
+                log(`📑 Abrindo aba clone ${k+1}...`);
+                const newTab = await browser.newPage();
+                await newTab.goto(projectUrl, { waitUntil: 'domcontentloaded' });
+                pages.push(newTab);
             }
+
+            log("⚡ Disparando cliques simultâneos...");
+            
+            // Executa a função de clicar em todas as abas ao mesmo tempo
+            const results = await Promise.all(pages.map((p, idx) => clickPublishOnPage(p, idx)));
+
+            // Conta quantos deram certo
+            const publishCount = results.filter(r => r === true).length;
+            log(`🏁 Resultado: ${publishCount} de 5 abas publicaram.`);
+            
+            if (publishCount > 0) successCount++;
+            
+            await new Promise(r => setTimeout(r, 2000));
+            await mainPage.screenshot({ path: 'public/step_final_exploit.png' });
 
         } catch (e) {
             log(`❌ Erro: ${e.message}`);
@@ -151,7 +166,7 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
             await new Promise(r => setTimeout(r, 15000));
         }
     }
-    log(`🏁 FIM. Sucessos: ${successCount}`);
+    log(`🏁 FIM. Sucessos Totais: ${successCount}`);
     delete runningTasks[taskId];
 }
 
