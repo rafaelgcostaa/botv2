@@ -6,34 +6,15 @@ const fetch = require('node-fetch');
 puppeteer.use(StealthPlugin());
 
 const runningTasks = {};
+const DEFAULT_PASSWORD = "PasswordStrong2026!"; // Senha fixa para criar a conta
 
-// Headers de Navegador Real
+// Headers para a API (usados na fase final)
 const API_HEADERS = (token) => ({
     "Authorization": token,
     "Content-Type": "application/json",
     "Origin": "https://lovable.dev",
-    "Referer": "https://lovable.dev/",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Referer": "https://lovable.dev/"
 });
-
-// Função para simular clique humano
-async function humanClick(page, selector) {
-    try {
-        const element = await page.waitForSelector(selector, { timeout: 5000 });
-        if (element) {
-            const box = await element.boundingBox();
-            const x = box.x + (box.width / 2);
-            const y = box.y + (box.height / 2);
-            await page.mouse.move(x, y);
-            await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
-            await page.mouse.down();
-            await new Promise(r => setTimeout(r, 50 + Math.random() * 100));
-            await page.mouse.up();
-            return true;
-        }
-    } catch (e) { return false; }
-    return false;
-}
 
 async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     const log = (msg) => {
@@ -43,7 +24,7 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     };
 
     let successCount = 0;
-    log(`🚀 Iniciando V4 (Human Mode). Meta: ${loops}`);
+    log(`🚀 Iniciando V6 (Fluxo: Senha + Ativação + Prints). Meta: ${loops}`);
 
     for (let i = 1; i <= parseInt(loops); i++) {
         if (!runningTasks[taskId]) { log("🛑 Parada."); break; }
@@ -52,31 +33,22 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
         let browser = null;
 
         try {
-            // 1. Email
+            // 1. Email (TigrMail)
             const tempMail = await createTempAccount();
-            if (!tempMail) throw new Error("Erro no email");
+            if (!tempMail) throw new Error("Erro ao criar email.");
             log(`📧 Email: ${tempMail.address}`);
 
-            // 2. Navegador (Configuração Anti-Detecção Reforçada)
+            // 2. Navegador
             browser = await puppeteer.launch({
                 headless: "new",
-                args: [
-                    '--no-sandbox', 
-                    '--disable-setuid-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--window-size=1366,768',
-                    `--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`
-                ]
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1366,768']
             });
             const page = await browser.newPage();
             
-            // Mascara webdriver
-            await page.evaluateOnNewDocument(() => {
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-            });
-
-            // Captura Token
+            // Variável para o Token
             let sessionToken = null;
+
+            // Interceptador de Token
             await page.setRequestInterception(true);
             page.on('request', req => req.continue());
             page.on('response', async (res) => {
@@ -86,104 +58,126 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
                 }
             });
 
-            // 3. Acessar
-            log("🔗 Acessando...");
+            // --- PASSO 1: Acessar Home ---
+            log("🔗 Acessando convite...");
             await page.goto(referralLink, { waitUntil: 'networkidle2', timeout: 60000 });
-            
-            // 4. Preencher Email (Digitação Humana)
+            await page.screenshot({ path: 'public/step1_home.png' });
+            log("📸 Foto: step1_home.png");
+
+            // --- PASSO 2: Digitar Email ---
             const emailSel = 'input[type="email"]';
-            try { await page.waitForSelector(emailSel, { timeout: 10000 }); } 
-            catch (e) { 
-                await page.screenshot({ path: 'public/error_input.png' });
-                throw new Error("Input não achado (Veja error_input.png)");
+            await page.waitForSelector(emailSel, { timeout: 15000 });
+            await page.type(emailSel, tempMail.address, { delay: 80 });
+            await new Promise(r => setTimeout(r, 500));
+            
+            log("👉 Enviando email...");
+            await page.keyboard.press('Enter');
+            
+            await new Promise(r => setTimeout(r, 2000)); // Espera transição
+            await page.screenshot({ path: 'public/step2_email_sent.png' });
+            log("📸 Foto: step2_email_sent.png");
+
+            // --- PASSO 3: Digitar Senha ---
+            log("🔑 Aguardando campo de senha...");
+            const passwordSel = 'input[type="password"]';
+            try {
+                await page.waitForSelector(passwordSel, { timeout: 10000 });
+                await page.type(passwordSel, DEFAULT_PASSWORD, { delay: 80 });
+                await new Promise(r => setTimeout(r, 500));
+                
+                log("👉 Enviando senha...");
+                await page.keyboard.press('Enter');
+
+                await new Promise(r => setTimeout(r, 3000)); // Espera envio
+                await page.screenshot({ path: 'public/step3_password_sent.png' });
+                log("📸 Foto: step3_password_sent.png");
+
+            } catch (e) {
+                log("⚠️ Campo de senha não apareceu ou erro no envio.");
+                await page.screenshot({ path: 'public/error_password.png' });
+                throw new Error("Falha no passo da senha (ver error_password.png)");
             }
 
-            await page.click(emailSel);
-            await page.type(emailSel, tempMail.address, { delay: 100 }); // Lento
-            await new Promise(r => setTimeout(r, 800));
-
-            // Tenta clicar no botão "Continue" ou "Sign up"
-            log("👉 Clicando (Humano)...");
+            // --- PASSO 4: Aguardar Email ---
+            log("📩 Aguardando email de ativação (TigrMail)...");
             
-            // Tenta achar o botão pelo texto ou type submit
-            let clicked = await page.evaluate(() => {
-                const btns = Array.from(document.querySelectorAll('button'));
-                const target = btns.find(b => b.innerText.includes('Continue') || b.innerText.includes('Sign') || b.type === 'submit');
-                if(target) { target.click(); return true; }
-                return false;
-            });
+            // Tira foto da tela de espera (para ver se pediu captcha)
+            await page.screenshot({ path: 'public/step4_waiting_email.png' });
+
+            const activationLink = await waitForLovableCode(tempMail);
+            if (!activationLink) throw new Error("Link de ativação não chegou.");
             
-            if(!clicked) await page.keyboard.press('Enter');
+            log("🔗 Link recebido! Ativando...");
 
-            // Screenshot do momento pós-clique
-            await new Promise(r => setTimeout(r, 5000));
-            await page.screenshot({ path: 'public/step2_sent.png' });
-            log("📸 Verificando envio...");
+            // --- PASSO 5: Clicar no Link ---
+            await page.goto(activationLink, { waitUntil: 'networkidle0' });
+            await page.screenshot({ path: 'public/step5_activation_clicked.png' });
+            log("📸 Foto: step5_activation_clicked.png");
 
-            // Se aparecer "Verify you are human" no título ou corpo, aborta
-            const pageContent = await page.content();
-            if (pageContent.includes('challenge') || pageContent.includes('human')) {
-                throw new Error("⚠️ BLOQUEIO CLOUDFLARE DETECTADO! IP do servidor bloqueado.");
-            }
-
-            log("📨 Aguardando link...");
-            const magicLink = await waitForLovableCode(tempMail);
-
-            if (!magicLink) throw new Error("Link não chegou (Provável bloqueio de IP).");
-            
-            log("🔗 Logando...");
-            await page.goto(magicLink, { waitUntil: 'networkidle0' });
-
-            // Aguarda Token
+            // --- PASSO 6: Verificar Login ---
+            log("🔄 Verificando sessão...");
             for(let k=0; k<15; k++) {
                 if(sessionToken) break;
                 await new Promise(r => setTimeout(r, 1000));
             }
 
-            if(!sessionToken) {
-                 await page.reload({ waitUntil: 'networkidle0' });
-                 await new Promise(r => setTimeout(r, 3000));
+            if (!sessionToken) {
+                // Tenta reload se não pegou token
+                await page.reload({ waitUntil: 'networkidle0' });
+                await new Promise(r => setTimeout(r, 2000));
             }
-            if(!sessionToken) throw new Error("Token não capturado.");
 
-            log("🔑 Token OK! Criando projeto...");
+            if(!sessionToken) {
+                await page.screenshot({ path: 'public/error_no_token.png' });
+                throw new Error("Token não capturado. Login falhou?");
+            }
+
+            log("✅ Token Capturado! Conta logada.");
             await browser.close();
             browser = null;
 
-            // API: Criar
+            // --- PASSO 7: Automação API ---
+            log("✨ Criando projeto...");
             const projectRes = await fetch("https://api.lovable.dev/projects", {
                 method: "POST", headers: API_HEADERS(sessionToken),
-                body: JSON.stringify({ message: "Hello world app", starter_template: null })
+                body: JSON.stringify({ message: "Landing page startup", starter_template: null })
             });
             const project = await projectRes.json();
             
-            if (!project.id) throw new Error("Erro criação projeto.");
-            
-            log("⏳ Simulando criação (15s)...");
+            if (!project.id) throw new Error("Erro criação projeto API.");
+
+            log("⏳ Simulando (15s)...");
             await new Promise(r => setTimeout(r, 15000));
 
-            // API: Deploy
+            log("🚀 Deploy...");
             const deployRes = await fetch(`https://api.lovable.dev/projects/${project.id}/deployments`, {
                 method: "POST", headers: API_HEADERS(sessionToken), body: "{}"
             });
 
             if (deployRes.ok) {
-                log("✅ SUCESSO! Bônus +10.");
+                log("✅ SUCESSO! Bônus Enviado.");
                 successCount++;
             } else {
-                log(`❌ Deploy falhou: ${deployRes.status}`);
+                log(`❌ Falha Deploy: ${deployRes.status}`);
             }
 
         } catch (e) {
-            log(`❌ ${e.message}`);
+            log(`❌ Erro: ${e.message}`);
         } finally {
             if (browser) await browser.close();
         }
 
-        if (i < parseInt(loops)) await new Promise(r => setTimeout(r, 15000));
+        if (i < parseInt(loops)) {
+            log("💤 Esfriando (15s)...");
+            await new Promise(r => setTimeout(r, 15000));
+        }
     }
     log(`🏁 FIM. Sucessos: ${successCount}`);
     delete runningTasks[taskId];
 }
 
-module.exports = { runAutomation, startTask: (id) => runningTasks[id] = true, stopTask: (id) => delete runningTasks[id] };
+module.exports = { 
+    runAutomation, 
+    startTask: (id) => runningTasks[id] = true, 
+    stopTask: (id) => delete runningTasks[id] 
+};
