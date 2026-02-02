@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 
 // Token da TigrMail
-const API_TOKEN = "mxq170fjalzxme688myeswecqahrrhv7yjw8ih60j3k4rvhlks0pfxvqnj2tgp6b";
+const API_TOKEN = "9qy8seulp5eel7qxq6sclu379pwfw5hkr5f0mbknvm83oikf2oa7tnsmf705zara";
 const API_BASE = "https://api.tigrmail.com";
 
 async function createTempAccount() {
