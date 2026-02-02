@@ -1,20 +1,11 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { createTempAccount, waitForLovableCode } = require('./email');
-const fetch = require('node-fetch');
 
 puppeteer.use(StealthPlugin());
 
 const runningTasks = {};
-const DEFAULT_PASSWORD = "PasswordStrong2026!"; // Senha fixa para criar a conta
-
-// Headers para a API (usados na fase final)
-const API_HEADERS = (token) => ({
-    "Authorization": token,
-    "Content-Type": "application/json",
-    "Origin": "https://lovable.dev",
-    "Referer": "https://lovable.dev/"
-});
+const DEFAULT_PASSWORD = "PasswordStrong2026!";
 
 async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     const log = (msg) => {
@@ -24,141 +15,129 @@ async function runAutomation({ referralLink, loops, taskId }, updateLog) {
     };
 
     let successCount = 0;
-    log(`🚀 Iniciando V6 (Fluxo: Senha + Ativação + Prints). Meta: ${loops}`);
+    log(`🚀 V7: Jaboti Cyberpunk Mode. Meta: ${loops}`);
 
     for (let i = 1; i <= parseInt(loops); i++) {
         if (!runningTasks[taskId]) { log("🛑 Parada."); break; }
 
-        log(`\n👤 [CONTA ${i}/${loops}] Criando identidade...`);
+        log(`\n👤 [CONTA ${i}/${loops}] Iniciando...`);
         let browser = null;
 
         try {
-            // 1. Email (TigrMail)
+            // 1. Email
             const tempMail = await createTempAccount();
-            if (!tempMail) throw new Error("Erro ao criar email.");
-            log(`📧 Email: ${tempMail.address}`);
+            if (!tempMail) throw new Error("Erro email");
+            log(`📧 ${tempMail.address}`);
 
-            // 2. Navegador
+            // 2. Browser
             browser = await puppeteer.launch({
                 headless: "new",
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1366,768']
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-size=1366,768']
             });
             const page = await browser.newPage();
-            
-            // Variável para o Token
-            let sessionToken = null;
 
-            // Interceptador de Token
-            await page.setRequestInterception(true);
-            page.on('request', req => req.continue());
-            page.on('response', async (res) => {
-                if ((res.url().includes('/auth/session') || res.url().includes('/user')) && !sessionToken) {
-                    const headers = res.request().headers();
-                    if (headers['authorization']) sessionToken = headers['authorization'];
-                }
-            });
-
-            // --- PASSO 1: Acessar Home ---
-            log("🔗 Acessando convite...");
+            // --- STEP 1: HOME ---
             await page.goto(referralLink, { waitUntil: 'networkidle2', timeout: 60000 });
             await page.screenshot({ path: 'public/step1_home.png' });
-            log("📸 Foto: step1_home.png");
+            log("📸 step1_home.png");
 
-            // --- PASSO 2: Digitar Email ---
+            // --- STEP 2: EMAIL ---
             const emailSel = 'input[type="email"]';
-            await page.waitForSelector(emailSel, { timeout: 15000 });
-            await page.type(emailSel, tempMail.address, { delay: 80 });
-            await new Promise(r => setTimeout(r, 500));
-            
-            log("👉 Enviando email...");
+            await page.waitForSelector(emailSel);
+            await page.type(emailSel, tempMail.address, { delay: 50 });
             await page.keyboard.press('Enter');
-            
-            await new Promise(r => setTimeout(r, 2000)); // Espera transição
-            await page.screenshot({ path: 'public/step2_email_sent.png' });
-            log("📸 Foto: step2_email_sent.png");
+            await new Promise(r => setTimeout(r, 2000));
+            await page.screenshot({ path: 'public/step2_email.png' });
+            log("📸 step2_email.png");
 
-            // --- PASSO 3: Digitar Senha ---
-            log("🔑 Aguardando campo de senha...");
-            const passwordSel = 'input[type="password"]';
+            // --- STEP 3: SENHA ---
             try {
-                await page.waitForSelector(passwordSel, { timeout: 10000 });
-                await page.type(passwordSel, DEFAULT_PASSWORD, { delay: 80 });
-                await new Promise(r => setTimeout(r, 500));
-                
-                log("👉 Enviando senha...");
+                const passSel = 'input[type="password"]';
+                await page.waitForSelector(passSel, { timeout: 10000 });
+                await page.type(passSel, DEFAULT_PASSWORD, { delay: 50 });
                 await page.keyboard.press('Enter');
-
-                await new Promise(r => setTimeout(r, 3000)); // Espera envio
-                await page.screenshot({ path: 'public/step3_password_sent.png' });
-                log("📸 Foto: step3_password_sent.png");
-
-            } catch (e) {
-                log("⚠️ Campo de senha não apareceu ou erro no envio.");
-                await page.screenshot({ path: 'public/error_password.png' });
-                throw new Error("Falha no passo da senha (ver error_password.png)");
+                await new Promise(r => setTimeout(r, 3000));
+                await page.screenshot({ path: 'public/step3_senha.png' });
+                log("📸 step3_senha.png");
+            } catch(e) {
+                log("⚠️ Pulo da senha (ou erro).");
+                await page.screenshot({ path: 'public/debug_pass_error.png' });
             }
 
-            // --- PASSO 4: Aguardar Email ---
-            log("📩 Aguardando email de ativação (TigrMail)...");
+            // --- STEP 4: EMAIL WAIT ---
+            log("📩 Aguardando email...");
+            const actLink = await waitForLovableCode(tempMail);
+            if (!actLink) throw new Error("Link não chegou.");
             
-            // Tira foto da tela de espera (para ver se pediu captcha)
-            await page.screenshot({ path: 'public/step4_waiting_email.png' });
+            // --- STEP 5: ATIVAÇÃO ---
+            log("🔗 Clicando no link...");
+            await page.goto(actLink, { waitUntil: 'networkidle0' });
+            await new Promise(r => setTimeout(r, 5000)); // Espera carregar painel
+            await page.screenshot({ path: 'public/step5_painel_logado.png' });
+            log("📸 step5_painel_logado.png");
 
-            const activationLink = await waitForLovableCode(tempMail);
-            if (!activationLink) throw new Error("Link de ativação não chegou.");
+            // --- STEP 6: JABOTI ESPACIAL (PROMPT) ---
+            log("🤖 Digitando prompt...");
             
-            log("🔗 Link recebido! Ativando...");
-
-            // --- PASSO 5: Clicar no Link ---
-            await page.goto(activationLink, { waitUntil: 'networkidle0' });
-            await page.screenshot({ path: 'public/step5_activation_clicked.png' });
-            log("📸 Foto: step5_activation_clicked.png");
-
-            // --- PASSO 6: Verificar Login ---
-            log("🔄 Verificando sessão...");
-            for(let k=0; k<15; k++) {
-                if(sessionToken) break;
-                await new Promise(r => setTimeout(r, 1000));
-            }
-
-            if (!sessionToken) {
-                // Tenta reload se não pegou token
-                await page.reload({ waitUntil: 'networkidle0' });
-                await new Promise(r => setTimeout(r, 2000));
-            }
-
-            if(!sessionToken) {
-                await page.screenshot({ path: 'public/error_no_token.png' });
-                throw new Error("Token não capturado. Login falhou?");
-            }
-
-            log("✅ Token Capturado! Conta logada.");
-            await browser.close();
-            browser = null;
-
-            // --- PASSO 7: Automação API ---
-            log("✨ Criando projeto...");
-            const projectRes = await fetch("https://api.lovable.dev/projects", {
-                method: "POST", headers: API_HEADERS(sessionToken),
-                body: JSON.stringify({ message: "Landing page startup", starter_template: null })
-            });
-            const project = await projectRes.json();
+            // Tenta achar a caixa de texto (pode variar, tentamos selector genérico)
+            const promptText = "Quero uma landingpage de um Jaboti espacial cyberpunk";
+            const textareaSel = 'textarea, input[placeholder*="Describe"], [contenteditable="true"]';
             
-            if (!project.id) throw new Error("Erro criação projeto API.");
+            await page.waitForSelector(textareaSel, { timeout: 15000 });
+            await page.type(textareaSel, promptText, { delay: 30 });
+            await new Promise(r => setTimeout(r, 1000));
+            
+            // Clicar em Enviar/Gerar (Busca botão perto do textarea ou botão de submit)
+            await page.keyboard.press('Enter');
+            log("👉 Prompt enviado. Aguardando geração...");
+            
+            await page.screenshot({ path: 'public/step6_prompt_enviado.png' });
+            log("📸 step6_prompt_enviado.png");
 
-            log("⏳ Simulando (15s)...");
-            await new Promise(r => setTimeout(r, 15000));
+            // --- STEP 7: AGUARDAR GERAÇÃO ---
+            // Espera tempo fixo generoso para a IA trabalhar
+            log("⏳ Criando Jaboti (Aguardando 25s)...");
+            await new Promise(r => setTimeout(r, 25000));
+            
+            await page.screenshot({ path: 'public/step7_gerado.png' });
+            log("📸 step7_gerado.png");
 
-            log("🚀 Deploy...");
-            const deployRes = await fetch(`https://api.lovable.dev/projects/${project.id}/deployments`, {
-                method: "POST", headers: API_HEADERS(sessionToken), body: "{}"
+            // --- STEP 8: PUBLICAR (MODAL 1) ---
+            log("🚀 Tentando clicar em Publish...");
+            
+            // Procura botão que contenha texto "Publish" ou "Deploy"
+            const clicked1 = await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                const target = buttons.find(b => b.innerText.includes('Publish') || b.innerText.includes('Deploy'));
+                if (target) { target.click(); return true; }
+                return false;
             });
 
-            if (deployRes.ok) {
-                log("✅ SUCESSO! Bônus Enviado.");
+            if (!clicked1) log("⚠️ Botão Publish 1 não achado.");
+            else log("👉 Publish 1 clicado.");
+
+            await new Promise(r => setTimeout(r, 2000));
+            await page.screenshot({ path: 'public/step8_modal_aberto.png' });
+
+            // --- STEP 9: PUBLICAR FINAL (MODAL 2) ---
+            log("🚀 Confirmando Publish...");
+            
+            // Clica no botão de confirmação dentro do modal
+            const clicked2 = await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button'));
+                // Geralmente é o botão com cor de destaque ou "Publish" novamente
+                const target = buttons.find(b => b.innerText.includes('Publish') && b.offsetParent !== null); 
+                if (target) { target.click(); return true; }
+                return false;
+            });
+
+            if(clicked2) {
+                log("✅ SUCESSO! Projeto Publicado.");
                 successCount++;
+                await new Promise(r => setTimeout(r, 3000));
+                await page.screenshot({ path: 'public/step9_final_sucesso.png' });
             } else {
-                log(`❌ Falha Deploy: ${deployRes.status}`);
+                log("⚠️ Botão Confirmar Publish não achado.");
             }
 
         } catch (e) {

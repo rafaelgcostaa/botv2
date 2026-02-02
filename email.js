@@ -1,92 +1,100 @@
 const fetch = require('node-fetch');
 
-// Token da TigrMail
+// Seu Token Oficial
 const API_TOKEN = "mxq170fjalzxme688myeswecqahrrhv7yjw8ih60j3k4rvhlks0pfxvqnj2tgp6b";
 const API_BASE = "https://api.tigrmail.com";
 
 /**
- * Cria uma nova caixa de entrada na TigrMail
+ * Cria uma caixa de entrada (Inbox)
+ * Documentação: POST /v1/inboxes
  */
 async function createTempAccount() {
     try {
         const res = await fetch(`${API_BASE}/v1/inboxes`, {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${API_TOKEN}`
+                "Authorization": `Bearer ${API_TOKEN}`,
+                "Content-Type": "application/json"
             }
         });
 
         if (!res.ok) {
-            throw new Error(`Erro API TigrMail: ${res.status} ${await res.text()}`);
+            throw new Error(`Erro Tigrmail [${res.status}]: ${await res.text()}`);
         }
 
         const data = await res.json();
-        const address = data.inbox;
-        
-        console.log(`[EMAIL] 📧 Email Gerado (TigrMail): ${address}`);
-        
-        // Retorna no formato que o engine.js espera
-        return { address };
+        console.log(`[EMAIL] 📧 Inbox Criada: ${data.inbox}`);
+        return { address: data.inbox };
+
     } catch (e) {
-        console.error("Erro ao gerar email:", e.message);
+        console.error("❌ Falha ao criar email:", e.message);
         return null;
     }
 }
 
 /**
- * Aguarda o email chegar. 
- * A TigrMail segura a conexão (long polling) até chegar algo ou dar timeout.
+ * Aguarda o E-mail chegar (Long Polling)
+ * Documentação: GET /v1/messages
+ * A API segura a conexão por até 3 minutos.
  */
 async function waitForLovableCode(accountObj) {
-    console.log(`[EMAIL] ⏳ Aguardando email da Lovable em: ${accountObj.address}...`);
+    console.log(`[EMAIL] ⏳ Aguardando e-mail da Lovable em ${accountObj.address}...`);
 
     try {
-        // Monta a URL para buscar mensagens na caixa criada
-        const url = `${API_BASE}/v1/messages?inbox=${encodeURIComponent(accountObj.address)}`;
-
-        const res = await fetch(url, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${API_TOKEN}`
-            }
+        // Monta a URL com parâmetros (seguindo a doc CURL)
+        const params = new URLSearchParams({
+            inbox: accountObj.address,
+            // Opcional: Filtra para garantir que vem da Lovable (evita spam)
+            // Se der erro, remova esta linha, mas ajuda a ser preciso
+            // fromDomain: "lovable.dev" 
         });
 
-        const data = await res.json();
+        // Timeout alto no fetch para não cortar a conexão antes dos 3 min da API
+        const res = await fetch(`${API_BASE}/v1/messages?${params.toString()}`, {
+            method: "GET",
+            headers: {
+                "Authorization": `Bearer ${API_TOKEN}`,
+                "Content-Type": "application/json"
+            },
+            timeout: 190000 // 190 segundos (pouco mais que os 3 min da API)
+        });
 
-        // Se houver erro ou timeout sem mensagem
-        if (!res.ok || data.error) {
-            console.log(`[EMAIL] ⚠️ Nenhuma mensagem recebida ou erro: ${data.error || res.status}`);
+        if (!res.ok) {
+            const errText = await res.text();
+            // Erro 404 ou 408 geralmente significa que deu o tempo limite sem email
+            console.log(`[EMAIL] ⚠️ Nenhuma mensagem recebida (Status: ${res.status} - ${errText})`);
             return null;
         }
 
-        // Se chegou mensagem
+        const data = await res.json();
+
+        // A API retorna { message: { subject: "...", body: "..." } }
         if (data.message) {
-            const subject = data.message.subject;
+            console.log(`[EMAIL] 📬 Recebido: "${data.message.subject}"`);
+            
             const body = data.message.body;
             
-            console.log(`[EMAIL] 📬 Email recebido! Assunto: ${subject}`);
-
-            // Busca o Link Mágico no corpo
+            // Regex para achar o link (verify-email OU login)
             const match = body.match(/https:\/\/(?:www\.)?lovable\.dev\/(?:verify-email|login)\?token=[^\s"']+/);
             
             if (match) {
-                console.log("[EMAIL] ✅ Link encontrado!");
+                console.log("[EMAIL] ✅ Link Mágico Encontrado!");
                 return match[0];
             } else {
-                console.log("[EMAIL] ⚠️ Email chegou mas não achei o link padrão. Tentando busca ampla...");
-                // Fallback
-                const matchWide = body.match(/https?:\/\/[^\s]+/g);
-                if (matchWide) {
-                     const target = matchWide.find(l => l.includes('lovable.dev') && l.includes('token='));
-                     if (target) return target;
+                console.log("[EMAIL] ⚠️ E-mail chegou, mas o link não foi reconhecido no regex padrão.");
+                // Fallback: tenta pegar qualquer link grande
+                const wideMatch = body.match(/https?:\/\/[^\s]+/g);
+                if(wideMatch) {
+                    const link = wideMatch.find(l => l.includes('token='));
+                    if(link) return link;
                 }
             }
         }
 
-    } catch (err) {
-        console.error(`[EMAIL] Erro crítico na busca: ${err.message}`);
+    } catch (e) {
+        console.error(`[EMAIL] ❌ Erro na conexão: ${e.message}`);
     }
-    
+
     return null;
 }
 
